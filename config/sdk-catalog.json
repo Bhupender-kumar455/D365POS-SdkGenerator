@@ -1,0 +1,116 @@
+{
+  "versions": [
+    {
+      "version": "9.53",
+      "displayName": "Commerce SDK 9.53",
+      "storeCommerce": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.InStore.git",
+        "branch": "release/9.53",
+        "sourceRoot": "src/PackagingSamples/StoreCommerceApp"
+      },
+      "scaleUnit": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.ScaleUnit.git",
+        "branch": "release/9.53",
+        "sourceRoot": "src/ScaleUnitSample"
+      }
+    },
+    {
+      "version": "9.54",
+      "displayName": "Commerce SDK 9.54",
+      "storeCommerce": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.InStore.git",
+        "branch": "release/9.54",
+        "sourceRoot": "src/PackagingSamples/StoreCommerceApp"
+      },
+      "scaleUnit": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.ScaleUnit.git",
+        "branch": "release/9.54",
+        "sourceRoot": "src/ScaleUnitSample"
+      }
+    },
+    {
+      "version": "9.55",
+      "displayName": "Commerce SDK 9.55",
+      "storeCommerce": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.InStore.git",
+        "branch": "release/9.55",
+        "sourceRoot": "src/PackagingSamples/StoreCommerceApp"
+      },
+      "scaleUnit": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.ScaleUnit.git",
+        "branch": "release/9.55",
+        "sourceRoot": "src/ScaleUnitSample"
+      }
+    },
+    {
+      "version": "9.56",
+      "displayName": "Commerce SDK 9.56",
+      "storeCommerce": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.InStore.git",
+        "branch": "release/9.56",
+        "sourceRoot": "src/PackagingSamples/StoreCommerceApp"
+      },
+      "scaleUnit": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.ScaleUnit.git",
+        "branch": "release/9.56",
+        "sourceRoot": "src/ScaleUnitSample"
+      }
+    },
+    {
+      "version": "9.57",
+      "displayName": "Commerce SDK 9.57",
+      "storeCommerce": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.InStore.git",
+        "branch": "release/9.57",
+        "sourceRoot": "src/PackagingSamples/StoreCommerceApp"
+      },
+      "scaleUnit": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.ScaleUnit.git",
+        "branch": "release/9.57",
+        "sourceRoot": "src/ScaleUnitSample"
+      }
+    },
+    {
+      "version": "9.58",
+      "displayName": "Commerce SDK 9.58",
+      "storeCommerce": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.InStore.git",
+        "branch": "release/9.58",
+        "sourceRoot": "src/PackagingSamples/StoreCommerceApp"
+      },
+      "scaleUnit": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.ScaleUnit.git",
+        "branch": "release/9.58",
+        "sourceRoot": "src/ScaleUnitSample"
+      }
+    },
+    {
+      "version": "9.59",
+      "displayName": "Commerce SDK 9.59 (latest)",
+      "storeCommerce": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.InStore.git",
+        "branch": "release/9.59",
+        "sourceRoot": "src/PackagingSamples/StoreCommerceApp"
+      },
+      "scaleUnit": {
+        "repository": "https://github.com/microsoft/Dynamics365Commerce.ScaleUnit.git",
+        "branch": "release/9.59",
+        "sourceRoot": "src/ScaleUnitSample"
+      }
+    },
+    {
+      "version": "CUSTOM",
+      "displayName": "Custom / company template",
+      "storeCommerce": {
+        "repository": "https://github.com/YOUR_ORGANIZATION/YOUR_INSTORE_TEMPLATE.git",
+        "branch": "main",
+        "sourceRoot": "src/PackagingSamples/StoreCommerceApp"
+      },
+      "scaleUnit": {
+        "repository": "https://github.com/YOUR_ORGANIZATION/YOUR_SCALEUNIT_TEMPLATE.git",
+        "branch": "main",
+        "sourceRoot": "src/ScaleUnitSample"
+      }
+    }
+  ]
+}
