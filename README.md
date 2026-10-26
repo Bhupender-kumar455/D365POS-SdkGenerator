@@ -24,6 +24,23 @@ The app checks most of these before generation starts and shows a warning in the
 (with the exact `winget` command). Warnings do not block generation; they tell you what the
 generated solution will need at build time. Only a missing .NET SDK is blocking.
 
+The **Build requirements** strip under the form always shows the detected toolchain, so the
+build prerequisites are visible before and after generating:
+
+```text
+Build requirements · needed to build the generated solution
+  ● .NET SDK 9.0.319   ● Node.js 24.22.1   ● Git 2.56.0   ● PowerShell 7.6.8   ● .NET 10 runtime not found
+```
+
+A green dot means the tool was found (its detected version is shown). A red dot means it is
+missing; missing chips also show a **Download** action (`Learn more` for long paths). Click the
+chip to open the official vendor page in your browser — or hover it to see why the tool is
+needed and the exact `winget` command that installs it. The strip adapts to the selection: Git
+appears when **Initialize a Git repository** is checked, PowerShell 7 and the .NET 10 runtime
+only for SDK 9.59+, and a **Long paths** chip appears when Windows long path support is off and
+the target path would exceed the limit. It is re-probed when the window regains focus, so
+installing a missing tool is picked up without restarting the app.
+
 ### Long paths
 
 Windows limits paths to 260 characters unless long path support is enabled. In an
@@ -68,8 +85,10 @@ Other behaviour:
 * **Activity** streams download URLs, per-step progress, validation results and the solution path.
 * **Cancel** stops the download/copy and removes the partially generated project.
 * **Open folder** / **Open solution** appear after a successful run.
-* The last used SDK, project name, publisher, output folder and Git choice are remembered in
-  `%LOCALAPPDATA%\D365SdkGenerator\app-settings.json`.
+* The moon/sun button in the top bar switches between the light and dark themes. The native
+  title bar follows the theme, and the choice is remembered across launches.
+* The last used SDK, project name, publisher, output folder, Git choice and theme are remembered
+  in `%LOCALAPPDATA%\D365SdkGenerator\app-settings.json`.
 
 ## What the generator does
 

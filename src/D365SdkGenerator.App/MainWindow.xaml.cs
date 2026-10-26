@@ -25,9 +25,11 @@ public partial class MainWindow : Window
     private bool suppressUpdates;
     private bool closeAfterGeneration;
     private int preflightVersion;
+    private long lastPreflightTicks;
     private string? generatedProjectDirectory;
     private string? generatedSolutionFile;
     private string? lastGeneratedTarget;
+    private StatusTone lastStatusTone = StatusTone.Idle;
 
     public MainWindow()
     {
@@ -51,6 +53,9 @@ public partial class MainWindow : Window
 
     private async void OnWindowLoaded(object sender, RoutedEventArgs e)
     {
+        ThemeService.ApplyWindowChrome(this);
+        UpdateThemeToggle();
+
         try
         {
             settings = await settingsService.LoadAsync(SettingsService.LocateCatalogFile());
@@ -120,7 +125,7 @@ public partial class MainWindow : Window
         SetBusyState(false);
 
         AppendLog(GeneratorLogLevel.Error, message);
-        StatusText.Text = "Cannot start";
+        SetStatus("Cannot start", StatusTone.Error);
 
         SdkCombo.IsEnabled = false;
         ProjectNameBox.IsEnabled = false;
@@ -163,6 +168,22 @@ public partial class MainWindow : Window
         }
 
         UpdateDerivedState();
+        SchedulePreflight();
+    }
+
+    /// <summary>
+    /// Re-probes the toolchain when the window regains focus, so installing Node.js in another
+    /// window is reflected here without restarting the app. Throttled to keep it cheap.
+    /// </summary>
+    private void OnWindowActivated(object? sender, EventArgs e)
+    {
+        if (!isReady || isRunning ||
+            Environment.TickCount64 - lastPreflightTicks < 4000)
+        {
+            return;
+        }
+
+        SchedulePreflight();
     }
 
     private void UpdateDerivedState(bool updateStatus = true)
@@ -230,9 +251,10 @@ public partial class MainWindow : Window
 
         if (!isRunning && updateStatus)
         {
-            StatusText.Text = GenerateButton.IsEnabled
-                ? "Ready"
-                : "Complete the required fields";
+            SetStatus(
+                GenerateButton.IsEnabled
+                    ? "Ready"
+                    : "Complete the required fields");
         }
     }
 
@@ -295,14 +317,82 @@ public partial class MainWindow : Window
 
         if (busy)
         {
-            StatusText.Text = "Generating…";
+            SetStatus("Generating…", StatusTone.Busy);
         }
+    }
+
+    private enum StatusTone
+    {
+        Idle,
+        Busy,
+        Success,
+        Warning,
+        Error
+    }
+
+    private void SetStatus(string text, StatusTone tone = StatusTone.Idle)
+    {
+        lastStatusTone = tone;
+
+        StatusText.Text = text;
+        RefreshStatusDot();
+    }
+
+    private void RefreshStatusDot()
+    {
+        StatusDot.Fill = (Brush)FindResource(lastStatusTone switch
+        {
+            StatusTone.Busy => "AccentBrush",
+            StatusTone.Success => "SuccessBrush",
+            StatusTone.Warning => "WarningBrush",
+            StatusTone.Error => "DangerBrush",
+            _ => "TextMutedBrush"
+        });
+    }
+
+    // ------------------------------------------------------------------ theme
+
+    private void OnThemeToggleClick(object sender, RoutedEventArgs e)
+    {
+        var next = ThemeService.Current == AppTheme.Dark
+            ? AppTheme.Light
+            : AppTheme.Dark;
+
+        ThemeService.Apply(next);
+        ThemeService.ApplyWindowChrome(this);
+
+        UpdateThemeToggle();
+
+        // Brushes resolved through FindResource are not refreshed by the swap itself.
+        RefreshStatusDot();
+
+        preferences.Theme = next.ToString();
+        preferences.Save();
+    }
+
+    private void UpdateThemeToggle()
+    {
+        var dark = ThemeService.Current == AppTheme.Dark;
+
+        ThemeToggleButton.Tag = FindResource(dark ? "IconSun" : "IconMoon");
+        ThemeToggleButton.ToolTip = dark ? "Switch to light theme" : "Switch to dark theme";
+
+        System.Windows.Automation.AutomationProperties.SetName(
+            ThemeToggleButton,
+            dark ? "Switch to light theme" : "Switch to dark theme");
     }
 
     // ------------------------------------------------------------------ preflight
 
     private void SchedulePreflight()
     {
+        // Also called from XAML while InitializeComponent runs (the Git checkbox starts
+        // checked), before the timer and the settings exist.
+        if (!isReady)
+        {
+            return;
+        }
+
         preflightTimer.Stop();
         preflightTimer.Start();
     }
@@ -316,30 +406,38 @@ public partial class MainWindow : Window
     private async Task RefreshPreflightAsync()
     {
         var version = ++preflightVersion;
+        lastPreflightTicks = Environment.TickCount64;
 
-        if (!isReady || !TryBuildConfiguration(out var configuration))
+        if (!isReady)
         {
-            PreflightList.ItemsSource = null;
-            PreflightPanel.Visibility = Visibility.Collapsed;
             return;
         }
 
-        IReadOnlyList<PreflightCheck> checks;
+        var hasConfiguration = TryBuildConfiguration(out var configuration);
 
-        try
-        {
-            checks = await preflightService.RunAsync(configuration);
-        }
-        catch
-        {
-            // A probe failure must never block generation.
-            return;
-        }
+        var requirements = await LoadRequirementsAsync();
+
+        IReadOnlyList<PreflightCheck> checks = hasConfiguration
+            ? await RunPreflightAsync(configuration)
+            : Array.Empty<PreflightCheck>();
 
         // A newer request has already been queued; discard this stale result.
         if (version != preflightVersion || !isReady)
         {
             return;
+        }
+
+        if (requirements is not null)
+        {
+            RequirementList.ItemsSource = requirements
+                .Select(RequirementRow.FromRequirement)
+                .ToList();
+
+            RequirementList.Visibility = requirements.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            RequirementsLoadingText.Visibility = Visibility.Collapsed;
         }
 
         PreflightList.ItemsSource = checks.Select(PreflightRow.FromCheck).ToList();
@@ -352,11 +450,82 @@ public partial class MainWindow : Window
             : Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// Probes the toolchain shown in the Build requirements strip. Failures are ignored so a
+    /// broken probe can never hide the previous chips or block generation.
+    /// </summary>
+    private async Task<IReadOnlyList<BuildRequirement>?> LoadRequirementsAsync()
+    {
+        try
+        {
+            return await preflightService.GetBuildRequirementsAsync(
+                SelectedSdk,
+                OutputBox.Text.Trim(),
+                ProjectNameBox.Text.Trim(),
+                GitCheck.IsChecked == true);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<IReadOnlyList<PreflightCheck>> RunPreflightAsync(
+        ProjectConfiguration configuration)
+    {
+        try
+        {
+            return await preflightService.RunAsync(configuration);
+        }
+        catch
+        {
+            // A probe failure must never block generation.
+            return Array.Empty<PreflightCheck>();
+        }
+    }
+
     private void OnUseShortRootClick(object sender, RoutedEventArgs e)
     {
         OutputBox.Text = ProjectRules.PreferredShortOutputRoot;
         OutputBox.CaretIndex = OutputBox.Text.Length;
         OutputBox.Focus();
+    }
+
+    /// <summary>
+    /// Opens the vendor page for a missing requirement (download page, or documentation for
+    /// the long-path hint). Present requirements have no URL, so their chips do nothing.
+    /// </summary>
+    private void OnRequirementActionClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string url } ||
+            string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            AppendLog(GeneratorLogLevel.Warning, $"The link '{url}' is not a valid web address.");
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = uri.AbsoluteUri,
+                UseShellExecute = true
+            });
+
+            AppendLog(GeneratorLogLevel.Info, $"Opened {uri.AbsoluteUri} in your browser.");
+        }
+        catch (Exception ex)
+        {
+            AppendLog(
+                GeneratorLogLevel.Warning,
+                $"Could not open the download page. {ex.Message}");
+        }
     }
 
     // ------------------------------------------------------------------ generation
@@ -422,7 +591,7 @@ public partial class MainWindow : Window
             AppendLog(GeneratorLogLevel.Info, $"Location : {generatedProjectDirectory}");
             AppendLog(GeneratorLogLevel.Info, $"Solution : {generatedSolutionFile}");
 
-            StatusText.Text = "Project generated successfully.";
+            SetStatus("Project generated successfully.", StatusTone.Success);
             OpenFolderButton.Visibility = Visibility.Visible;
             OpenSolutionButton.Visibility = Visibility.Visible;
             lastGeneratedTarget = generatedProjectDirectory;
@@ -440,12 +609,12 @@ public partial class MainWindow : Window
                 GeneratorLogLevel.Warning,
                 "Generation cancelled. Any partially generated project was removed.");
 
-            StatusText.Text = "Cancelled";
+            SetStatus("Cancelled", StatusTone.Warning);
         }
         catch (Exception ex)
         {
             AppendLog(GeneratorLogLevel.Error, ex.Message);
-            StatusText.Text = "Generation failed";
+            SetStatus("Generation failed", StatusTone.Error);
         }
         finally
         {
@@ -465,7 +634,7 @@ public partial class MainWindow : Window
     private void OnCancelClick(object sender, RoutedEventArgs e)
     {
         CancelButton.IsEnabled = false;
-        StatusText.Text = "Cancelling…";
+        SetStatus("Cancelling…", StatusTone.Busy);
         generationCancellation?.Cancel();
     }
 
@@ -476,6 +645,13 @@ public partial class MainWindow : Window
         EmptyLogHint.Visibility = logRows.Count == 0
             ? Visibility.Visible
             : Visibility.Collapsed;
+
+        LogCountText.Text = logRows.Count switch
+        {
+            0 => string.Empty,
+            1 => "1 entry",
+            _ => $"{logRows.Count} entries"
+        };
 
         if (logRows.Count == 0)
         {
@@ -498,22 +674,13 @@ public partial class MainWindow : Window
         logRows.Add(new LogRow(
             timestamp.ToLocalTime().ToString("HH:mm:ss"),
             message,
-            BrushFor(level)));
-    }
-
-    private static Brush BrushFor(GeneratorLogLevel level) => level switch
-    {
-        GeneratorLogLevel.Success => CreateBrush("#0E7A3D"),
-        GeneratorLogLevel.Warning => CreateBrush("#8A5A00"),
-        GeneratorLogLevel.Error => CreateBrush("#C42B1C"),
-        _ => CreateBrush("#3B4553")
-    };
-
-    private static SolidColorBrush CreateBrush(string hex)
-    {
-        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
-        brush.Freeze();
-        return brush;
+            level switch
+            {
+                GeneratorLogLevel.Success => "Success",
+                GeneratorLogLevel.Warning => "Warning",
+                GeneratorLogLevel.Error => "Error",
+                _ => "Info"
+            }));
     }
 
     private void OnClearLogClick(object sender, RoutedEventArgs e) => logRows.Clear();
@@ -600,7 +767,7 @@ public partial class MainWindow : Window
             // Let the pipeline roll back its partial output before the process exits.
             e.Cancel = true;
             closeAfterGeneration = true;
-            StatusText.Text = "Cancelling…";
+            SetStatus("Cancelling…", StatusTone.Busy);
             generationCancellation?.Cancel();
 
             return;
@@ -611,6 +778,7 @@ public partial class MainWindow : Window
         preferences.OutputDirectory = OutputBox.Text.Trim();
         preferences.SdkVersion = SelectedSdk?.Version;
         preferences.InitializeGit = GitCheck.IsChecked == true;
+        preferences.Theme = ThemeService.Current.ToString();
         preferences.Save();
     }
 
@@ -619,34 +787,69 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------------ view rows
 
-    private sealed record LogRow(string Time, string Message, Brush Foreground);
+    private sealed record LogRow(string Time, string Message, string Tone);
+
+    private sealed record RequirementRow(
+        string Name,
+        string Version,
+        bool IsPresent,
+        string Tip,
+        string? ActionUrl,
+        string ActionLabel,
+        Visibility ActionVisibility)
+    {
+        public string AutomationName => IsPresent
+            ? $"{Name} {Version}"
+            : $"{Name} {Version}. {ActionLabel} opens the official page.";
+
+        public static RequirementRow FromRequirement(BuildRequirement requirement)
+        {
+            var present = requirement.State == RequirementState.Present;
+            var actionUrl = present ? null : requirement.ActionUrl;
+
+            var tip = requirement.Detail;
+
+            if (!string.IsNullOrWhiteSpace(requirement.Fix))
+            {
+                tip += $"{Environment.NewLine}{Environment.NewLine}Install: {requirement.Fix}";
+            }
+
+            if (actionUrl is not null)
+            {
+                tip += $"{Environment.NewLine}{Environment.NewLine}" +
+                       "Click to open the official page in your browser.";
+            }
+
+            return new RequirementRow(
+                requirement.Name,
+                present ? requirement.Version ?? "installed" : "not found",
+                present,
+                tip,
+                actionUrl,
+                requirement.ActionLabel,
+                actionUrl is null ? Visibility.Collapsed : Visibility.Visible);
+        }
+    }
 
     private sealed record PreflightRow(
         string Title,
         string Detail,
         string? Fix,
-        Brush Accent,
-        Brush Backdrop,
+        string Severity,
         Visibility FixVisibility)
     {
-        public static PreflightRow FromCheck(PreflightCheck check)
-        {
-            var (accent, backdrop) = check.Severity switch
+        public static PreflightRow FromCheck(PreflightCheck check) => new(
+            check.Title,
+            check.Detail,
+            check.Fix,
+            check.Severity switch
             {
-                PreflightSeverity.Error => ("#C42B1C", "#FDF1EF"),
-                PreflightSeverity.Warning => ("#8A5A00", "#FFF7E3"),
-                _ => ("#0F6CBD", "#F1F7FD")
-            };
-
-            return new PreflightRow(
-                check.Title,
-                check.Detail,
-                check.Fix,
-                CreateBrush(accent),
-                CreateBrush(backdrop),
-                string.IsNullOrWhiteSpace(check.Fix)
-                    ? Visibility.Collapsed
-                    : Visibility.Visible);
-        }
+                PreflightSeverity.Error => "Error",
+                PreflightSeverity.Warning => "Warning",
+                _ => "Info"
+            },
+            string.IsNullOrWhiteSpace(check.Fix)
+                ? Visibility.Collapsed
+                : Visibility.Visible);
     }
 }

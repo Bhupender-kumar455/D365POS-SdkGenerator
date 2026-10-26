@@ -7,6 +7,10 @@ public partial class App : Application
 {
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Apply the remembered palette before StartupUri creates the window so a dark-mode
+        // user never sees a white flash.
+        ThemeService.Apply(ThemeService.Parse(AppPreferences.Load().Theme));
+
         base.OnStartup(e);
         DispatcherUnhandledException += OnDispatcherUnhandledException;
     }

@@ -19,6 +19,7 @@ internal sealed class AppPreferences
     public string? OutputDirectory { get; set; }
     public string? SdkVersion { get; set; }
     public bool InitializeGit { get; set; } = true;
+    public string Theme { get; set; } = nameof(AppTheme.Light);
 
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
